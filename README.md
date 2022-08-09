@@ -11,4 +11,6 @@ if err != nil {
 }
 log.SetLevel("info") // по умолчанию "debug"
 logger.SetGlobal(log)
+
+logger.L().Info("kek") // использование глобального логгера
 ```
