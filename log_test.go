@@ -3,34 +3,49 @@ package logger
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"io/ioutil"
 	"os"
-	"os/signal"
 	"path"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
+
+	"github.com/pkg/errors"
 )
 
-func TestCatchFatal(t *testing.T) {
-	term := make(chan os.Signal, 1)
-	signal.Notify(term, syscall.SIGINT)
+// func TestCatchFatal(t *testing.T) {
+// 	term := make(chan os.Signal, 1)
+// 	signal.Notify(term, syscall.SIGINT)
 
-	newLogger(t, Config{}).Fatal("fatal")
+// 	newLogger(t, Config{}).Fatal("fatal")
 
-	// We can get a signal with a little delay
-	time.Sleep(10 * time.Millisecond)
+// 	// We can get a signal with a little delay
+// 	time.Sleep(10 * time.Millisecond)
 
-	select {
-	case s := <-term:
-		if s != syscall.SIGINT {
-			t.Errorf("want %s signal, got %s", syscall.SIGINT, s)
-		}
-	default:
-		t.Error("didn't get interrupt signal")
+// 	select {
+// 	case s := <-term:
+// 		if s != syscall.SIGINT {
+// 			t.Errorf("want %s signal, got %s", syscall.SIGINT, s)
+// 		}
+// 	default:
+// 		t.Error("didn't get interrupt signal")
+// 	}
+// }
+
+func TestClone(t *testing.T) {
+	filename := createTempFiles(t, "1.log")[0]
+	log := newLogger(t, Config{Files: []string{filename}})
+	expectedMsgs := [][]string{
+		{`{"log": 1}`},
+		{`{"log": 1, "log": 2}`},
 	}
+
+	log = log.WithField("log", 1)
+	log2 := log.WithField("log", 2)
+
+	log.Info(1)
+	log2.Info(2)
+
+	checkFileLogs(t, filename, expectedMsgs)
 }
 
 func TestWriteToFile(t *testing.T) {
@@ -89,12 +104,12 @@ func TestWithFields(t *testing.T) {
 	filename := createTempFiles(t, "1.log")[0]
 	log := newLogger(t, Config{Files: []string{filename}})
 
-	expectedMsgs := []string{
-		`info	{"error": "some error"}`,
-		`debug	{"error": "some error", "key": "value"}`,
-		`warn	{"error": "some error"}`,
-		`helloworld	{"a": 1, "b": 2, "c": 3}`,
-		`hello world	{"a": 1, "b": 2, "c": 3}`,
+	expectedMsgs := [][]string{
+		{`info	{"error": "some error"`},
+		{`debug	{"error": "some error",`, `"key": "value"`},
+		{`warn	{"error": "some error"`},
+		{`helloworld	{"a": 1, "b": 2, "c": 3`},
+		{`hello world	{"a": 1, "b": 2, "c": 3`},
 	}
 
 	l1 := log.WithError(errors.New("some error"))
@@ -106,15 +121,7 @@ func TestWithFields(t *testing.T) {
 	l2.Error("hello", "world")
 	l2.Errorln("hello", "world")
 
-	data := readFile(t, filename)
-	scan := bufio.NewScanner(bytes.NewBuffer(data))
-	for i := 0; scan.Scan(); i++ {
-		want := expectedMsgs[i]
-		got := scan.Text()
-		if !strings.HasSuffix(got, expectedMsgs[i]) {
-			t.Errorf("invalid msg on line #%d: want %s, got %s", i+1, want, got)
-		}
-	}
+	checkFileLogs(t, filename, expectedMsgs)
 }
 
 func TestCaller(t *testing.T) {
@@ -202,4 +209,20 @@ func readFile(t *testing.T, filename string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func checkFileLogs(t *testing.T, filename string, expectedMsgs [][]string) {
+	t.Helper()
+
+	data := readFile(t, filename)
+	scan := bufio.NewScanner(bytes.NewBuffer(data))
+	for i := 0; scan.Scan(); i++ {
+		want := expectedMsgs[i]
+		got := scan.Text()
+		for _, v := range expectedMsgs[i] {
+			if !strings.Contains(got, v) {
+				t.Errorf("invalid msg on line #%d: want %s, got %s", i+1, want, got)
+			}
+		}
+	}
 }

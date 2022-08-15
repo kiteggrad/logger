@@ -2,8 +2,6 @@ package logger
 
 import (
 	"fmt"
-	"os"
-	"syscall"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -49,6 +47,7 @@ func New(cfg Config) (logger *Logger, err error) {
 		Level:             level,
 		Development:       true,
 		DisableStacktrace: true,
+		Sampling:          nil,
 		Encoding:          "console",
 		OutputPaths:       outputPaths,
 		ErrorOutputPaths:  []string{"stderr"},
@@ -73,21 +72,21 @@ func New(cfg Config) (logger *Logger, err error) {
 		return nil, errors.Wrap(err, "failed to zapCfg.Build")
 	}
 
-	// Send SIGINT on fatal calls
-	z = z.WithOptions(
-		zap.OnFatal(doNothingOnFatal),
-		zap.Hooks(func(e zapcore.Entry) error {
-			if e.Level == zap.FatalLevel {
-				err := syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-				if err != nil {
-					z.With(zap.Any("error", err)).Sugar().Error("failed to syscall.SIGINT on FATAL()")
-					z.Sync()
-					os.Exit(1)
-				}
-			}
-			return nil
-		}),
-	)
+	// // Send SIGINT on fatal calls
+	// z = z.WithOptions(
+	// 	zap.OnFatal(doNothingOnFatal),
+	// 	zap.Hooks(func(e zapcore.Entry) error {
+	// 		if e.Level == zap.FatalLevel {
+	// 			err := syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+	// 			if err != nil {
+	// 				z.With(zap.Any("error", err)).Sugar().Error("failed to syscall.SIGINT on FATAL()")
+	// 				z.Sync()
+	// 				os.Exit(1)
+	// 			}
+	// 		}
+	// 		return nil
+	// 	}),
+	// )
 
 	z = z.WithOptions(zap.AddCallerSkip(1))
 
@@ -140,7 +139,7 @@ func (l *Logger) WithCallerSkip(skip int) *Logger {
 
 // WithField returns a cloned logger with a new field
 func (l *Logger) WithField(key string, value interface{}) *Logger {
-	return l.withFields(zap.Any(key, value))
+	return l.withFields(key, value)
 }
 
 // WithError is a shorthand for Logger.WithField("error", err)
@@ -150,16 +149,16 @@ func (l *Logger) WithError(err error) *Logger {
 
 // WithField returns a cloned logger with new fields
 func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
-	zapFields := make([]zap.Field, 0, len(fields))
+	zapFields := make([]interface{}, 0, len(fields))
 	for k, v := range fields {
-		zapFields = append(zapFields, zap.Any(k, v))
+		zapFields = append(zapFields, k, v)
 	}
 	return l.withFields(zapFields...)
 }
 
-func (l *Logger) withFields(fields ...zap.Field) *Logger {
+func (l *Logger) withFields(keyValArgs ...interface{}) *Logger {
 	clone := l.clone()
-	clone.zap = clone.zap.Desugar().With(fields...).Sugar()
+	clone.zap = clone.zap.With(keyValArgs...)
 	return clone
 }
 
